@@ -7,101 +7,192 @@
 
 #include "scheduler.h"
 
+uint8_t Error_code_G = 0;
+
 static sTask SCH_tasks_G[SCH_MAX_TASKS];
-static uint32_t task_id_counter = 1;
+static uint8_t  SCH_count = 0;
+static uint32_t newTaskID = 1;
+static volatile uint32_t tick = 0;
+static volatile uint32_t missed = 0;
+
+/* ========== Helper function ==========*/
+static uint32_t SCH_Lock(void) {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    return primask;
+}
+
+static void SCH_Unlock(uint32_t primask) {
+    __set_PRIMASK(primask);
+}
+
+static void push(uint32_t index, sTask newTask) {
+    for (uint32_t i = SCH_count; i > index; i--) {
+        SCH_tasks_G[i] = SCH_tasks_G[i - 1];
+    }
+    SCH_tasks_G[index] = newTask;
+}
+
+static void pull(uint32_t index) {
+    for (uint32_t i = index; i + 1 < SCH_count; i++) {
+        SCH_tasks_G[i] = SCH_tasks_G[i + 1];
+    }
+}
+
+static uint8_t SCH_Insert(sTask t) {
+    uint32_t primask = SCH_Lock();
+
+    if (SCH_count >= SCH_MAX_TASKS) {
+        Error_code_G = ERROR_SCH_TOO_MANY_TASKS;
+        SCH_Unlock(primask);
+        return RETURN_ERROR;
+    }
+
+    uint32_t index = 0;
+    while (index < SCH_count && t.Delay >= SCH_tasks_G[index].Delay) {
+        t.Delay -= SCH_tasks_G[index].Delay;
+        index++;
+    }
+    push(index, t);
+
+    if (index < SCH_count) {
+        SCH_tasks_G[index + 1].Delay -= t.Delay;
+    }
+
+    SCH_count++;
+    SCH_Unlock(primask);
+    return RETURN_NORMAL;
+}
+/* ==============================*/
+
 
 void SCH_Init(void) {
-    for (uint8_t i = 0; i < SCH_MAX_TASKS; i++) {
-        SCH_tasks_G[i].pTask = 0;
-        SCH_tasks_G[i].Delay = 0;
+    for (uint32_t i = 0; i < SCH_MAX_TASKS; i++) {
+        SCH_tasks_G[i].pTask  = 0;
+        SCH_tasks_G[i].Delay  = 0;
         SCH_tasks_G[i].Period = 0;
-        SCH_tasks_G[i].RunMe = 0;
         SCH_tasks_G[i].TaskID = NO_TASK_ID;
+        SCH_tasks_G[i].RunMe  = 0;
     }
+    SCH_count    = 0;
+    newTaskID    = 1;
+    tick         = 0;
+    missed       = 0;
+    Error_code_G = 0;
 }
 
-/*
- * SCH_Update: Được gọi định kỳ mỗi 10ms từ ngắt Timer (HAL_TIM_PeriodElapsedCallback)
- * Xử lý O(1) kiểm tra các vị trí đang hoạt động.
- */
+
 void SCH_Update(void) {
-    for (uint8_t Index = 0; Index < SCH_MAX_TASKS; Index++) {
-        if (SCH_tasks_G[Index].pTask) { // Nếu có task tại vị trí này
-            if (SCH_tasks_G[Index].Delay == 0) {
-                // Task đã đến thời điểm thực thi
-                SCH_tasks_G[Index].RunMe += 1;
-                if (SCH_tasks_G[Index].Period) {
-                    // Đặt lại Delay cho task định kỳ
-                    SCH_tasks_G[Index].Delay = SCH_tasks_G[Index].Period;
-//                    SCH_tasks_G[Index].Delay = SCH_tasks_G[Index].Period - 1;
-                }
-            } else {
-                // Giảm Delay đi 1 tick (10ms)
-                SCH_tasks_G[Index].Delay -= 1;
-            }
-        }
-    }
-}
+    tick++;
 
-/*
- * SCH_Add_Task: Thêm tác vụ vào mảng và trả về TaskID
- */
-uint32_t SCH_Add_Task(void (*pFunction)(void), uint32_t DELAY, uint32_t PERIOD) {
-    uint8_t Index = 0;
+    if (SCH_count == 0) return;
 
-    // Tìm vị trí trống trong mảng
-    while ((Index < SCH_MAX_TASKS) && (SCH_tasks_G[Index].pTask != 0)) {
-        Index++;
-    }
+    if (SCH_tasks_G[0].Delay > 0) SCH_tasks_G[0].Delay--;
+    else missed++;
 
-    // Nêu mảng đã đầy
-    if (Index == SCH_MAX_TASKS) {
-        return NO_TASK_ID;
-    }
-
-    // Gán dữ liệu tác vụ
-    SCH_tasks_G[Index].pTask = pFunction;
-    SCH_tasks_G[Index].Delay = DELAY;
-    SCH_tasks_G[Index].Period = PERIOD;
-    SCH_tasks_G[Index].RunMe = 0;
-    SCH_tasks_G[Index].TaskID = task_id_counter++;
-
-    return SCH_tasks_G[Index].TaskID;
-}
-
-/*
- * SCH_Delete_Task: Xóa tác vụ dựa trên TaskID
- */
-uint8_t SCH_Delete_Task(uint32_t taskID) {
-    if (taskID == NO_TASK_ID) return 0;
-
-    for (uint8_t Index = 0; Index < SCH_MAX_TASKS; Index++) {
-        if (SCH_tasks_G[Index].TaskID == taskID) {
-            SCH_tasks_G[Index].pTask = 0x0000;
-            SCH_tasks_G[Index].Delay = 0;
-            SCH_tasks_G[Index].Period = 0;
-            SCH_tasks_G[Index].RunMe = 0;
-            SCH_tasks_G[Index].TaskID = NO_TASK_ID;
-            return 1; // Xóa thành công
-        }
-    }
-    return 0; // Không tìm thấy TaskID
+    if (SCH_tasks_G[0].Delay == 0) SCH_tasks_G[0].RunMe = 1;
 }
 
 
-/*
- * SCH_Dispatch_Tasks: Gọi trong vòng lặp main (Super Loop) để thực thi task
- */
 void SCH_Dispatch_Tasks(void) {
-    for (uint8_t Index = 0; Index < SCH_MAX_TASKS; Index++) {
-        if (SCH_tasks_G[Index].RunMe > 0) {
-            (*SCH_tasks_G[Index].pTask)(); // Thực thi task
-            SCH_tasks_G[Index].RunMe -= 1; // Giảm cờ RunMe
+    while (1) {
+        uint32_t primask = SCH_Lock();
 
-            // Nếu là task 1-lần (one-shot task), xóa sau khi chạy xong
-            if (SCH_tasks_G[Index].Period == 0) {
-                SCH_Delete_Task(SCH_tasks_G[Index].TaskID);
+        while (missed && SCH_count && SCH_tasks_G[0].Delay) {
+            SCH_tasks_G[0].Delay--;
+            missed--;
+        }
+
+        if (SCH_count && (SCH_tasks_G[0].RunMe || SCH_tasks_G[0].Delay == 0)) {
+            sTask running = SCH_tasks_G[0];
+            void (*f)(void) = running.pTask;
+            running.Delay = running.Period;
+            running.RunMe = 0;
+
+            SCH_Delete_Task(running.TaskID);
+            if (running.Period) {
+                SCH_Insert(running);
             }
+            SCH_Unlock(primask);
+
+            f();
+        } else {
+            if (SCH_count == 0) missed = 0;
+            SCH_Unlock(primask);
+
+            SCH_Report_Status();
+            SCH_Go_To_Sleep();
+            return;
         }
     }
 }
+
+
+uint32_t SCH_Add_Task(void (*pFunction)(void), uint32_t Delay, uint32_t Period) {
+    if (pFunction == 0) return NO_TASK_ID;
+
+    uint32_t primask = SCH_Lock();
+
+    if (SCH_count == 0) missed = 0;
+
+    sTask newTask = {
+        .pTask  = pFunction,
+        .Delay  = Delay,
+        .Period = Period,
+        .TaskID = newTaskID,
+        .RunMe  = 0
+    };
+
+    uint32_t id = NO_TASK_ID;
+    if (SCH_Insert(newTask) == RETURN_NORMAL) {
+        id = newTaskID++;
+        if (newTaskID == NO_TASK_ID) newTaskID = 1;
+    }
+
+    SCH_Unlock(primask);
+    return id;
+}
+
+
+uint8_t SCH_Delete_Task(uint32_t taskID) {
+    if (taskID == NO_TASK_ID) {
+        Error_code_G = ERROR_SCH_CANNOT_DELETE_TASK;
+        return RETURN_ERROR;
+    }
+
+    uint32_t primask = SCH_Lock();
+    for (uint32_t i = 0; i < SCH_count; i++) {
+        if (SCH_tasks_G[i].TaskID == taskID) {
+            if (i + 1 < SCH_count) {
+                SCH_tasks_G[i + 1].Delay += SCH_tasks_G[i].Delay;
+            }
+            pull(i);
+            SCH_count--;
+            SCH_Unlock(primask);
+            return RETURN_NORMAL;
+        }
+    }
+
+    Error_code_G = ERROR_SCH_CANNOT_DELETE_TASK;
+    SCH_Unlock(primask);
+    return RETURN_ERROR;
+}
+
+
+uint32_t get_time(void) {
+    return tick * TICK_MS;
+}
+
+void SCH_Report_Status(void) {
+#ifdef SCH_REPORT_ERRORS
+    static uint8_t Last_error_code_G = 0;
+    if (Error_code_G != Last_error_code_G) {
+        Last_error_code_G = Error_code_G;
+    }
+#endif
+}
+
+void SCH_Go_To_Sleep(void) {
+
+}
+
