@@ -19,6 +19,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "stdio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -29,6 +30,10 @@
 #include "traffic_light.h"
 #include "button.h"
 #include "softwaretimer.h"
+
+#include "global.h"
+
+#include "dht20.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -68,7 +73,18 @@ void task_auto(void) {
     if (mode == MODE_NORMAL) fsm_automatic_run();
 }
 void task_countdown_display(void) {
-    if (mode == MODE_NORMAL) display_countdown_lcd();
+    if (mode == MODE_NORMAL) {
+        display_countdown_lcd();
+    }
+}
+
+void DHT20_Display_LCD(void) {
+    char buf[17];
+    lcd_goto(1, 0);
+    snprintf(buf, sizeof(buf), "T:%d.%dC H:%d.%d%% ",
+             dht20_temp_x10 / 10, dht20_temp_x10 % 10,
+             dht20_humi_x10 / 10, dht20_humi_x10 % 10);
+    lcd_str(buf);
 }
 
 /* USER CODE END 0 */
@@ -102,21 +118,21 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_TIM2_Init();
-  MX_I2C1_Init();
-  /* USER CODE BEGIN 2 */
-  lcd_init();
+ MX_I2C1_Init();
+ /* USER CODE BEGIN 2 */
+ lcd_init();
+ DHT20_Init();
 
+ SCH_Init();
+ HAL_TIM_Base_Start_IT(&htim2);
 
-  SCH_Init();
-  HAL_TIM_Base_Start_IT(&htim2);
-
-  SCH_Add_Task(button_reading, 0, 1);               // quet nut moi 10ms
-  SCH_Add_Task(fsm_for_input_processing, 0, 1);     // xu ly nut + chinh thoi gian
-  SCH_Add_Task(task_auto, 0, 100);                  // 1s
-  SCH_Add_Task(task_countdown_display, 1, 100);     // 1s, lech 1 tick sau task_auto
-
-  /* USER CODE END 2 */
-
+ SCH_Add_Task(button_reading, 0, 1);
+ SCH_Add_Task(fsm_for_input_processing, 0, 1);
+ SCH_Add_Task(task_auto, 0, 100);
+ SCH_Add_Task(task_countdown_display, 1, 100);
+ SCH_Add_Task(DHT20_Trigger_Task, 2, 200);
+ SCH_Add_Task(DHT20_Display_LCD, 15, 200);
+ /* USER CODE END 2 */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)

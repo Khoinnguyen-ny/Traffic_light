@@ -37,6 +37,11 @@ extern int green_duration;
 extern int temp_duration;
 
 extern uint32_t system_uptime;
+// Dữ liệu cảm biến DHT20 dùng chung toàn hệ thống
+extern float dht20_temp;
+extern float dht20_humi;
+extern int dht20_temp_x10;
+extern int dht20_humi_x10;
 
 
 #endif /* INC_GLOBAL_H_ */

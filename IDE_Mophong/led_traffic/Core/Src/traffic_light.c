@@ -170,7 +170,7 @@ void Task_LCD_Display(void) {
 		lcd_str(line2);
 }
 
-void display_countdown_lcd(void) {
+/*void display_countdown_lcd(void) {
 	char line1[17];
 	char line2[17];
 
@@ -208,4 +208,33 @@ void display_countdown_lcd(void) {
 			lcd_str(line1);
 			lcd_goto(1, 0);
 			lcd_str(line2);
+}*/
+void display_countdown_lcd(void) {
+    char line1[17];
+    char line2[17];
+
+    switch (status) {
+        case INIT:
+            snprintf(line1, sizeof(line1), "AUTO STARTING   ");
+            break;
+
+        case AUTO_RED_GREEN:
+        case AUTO_RED_YELLOW:
+        case AUTO_GREEN_RED:
+        case AUTO_YELLOW_RED:
+            snprintf(line1, sizeof(line1), "AUTO 1:%02ds 2:%02ds", counter_lane1, counter_lane2);
+            break;
+
+        default:
+            break;
+    }
+
+    snprintf(line2, sizeof(line2), "T:%d.%dC H:%d.%d%% ",
+             dht20_temp_x10 / 10, dht20_temp_x10 % 10,
+             dht20_humi_x10 / 10, dht20_humi_x10 % 10);
+
+    lcd_goto(0, 0);
+    lcd_str(line1);
+    lcd_goto(1, 0);
+    lcd_str(line2);
 }
