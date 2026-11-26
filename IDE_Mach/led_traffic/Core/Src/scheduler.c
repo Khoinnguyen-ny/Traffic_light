@@ -15,7 +15,7 @@ static uint32_t newTaskID = 1;
 static volatile uint32_t tick = 0;
 static volatile uint32_t missed = 0;
 
-/* ========== Helper function ==========*/
+
 static uint32_t SCH_Lock(void) {
     uint32_t primask = __get_PRIMASK();
     __disable_irq();
