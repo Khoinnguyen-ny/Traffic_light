@@ -1,16 +1,12 @@
 /*
  * fsm_tuning.c
- *
- *  Created on: Nov 9, 2026
- *      Author: Admin
  */
 
 #include "fsm_tuning.h"
+#include "fsm_manual.h"
 #include "button.h"
-#include "main.h"
 #include <stdio.h>
 #include "softwaretimer.h"     // setTimer, timer_flag
-#include "fsm_automatic.h"
 #include "global.h"            // red_duration, yellow_duration, green_duration, status, INIT
 #include "traffic_light.h"     // blinkyRed/Amber/Green, clearAllLEDs
 #include "lcd.h"               // lcd_goto, lcd_str, lcd_put_number
@@ -20,16 +16,11 @@ int temp_time = 0;
 
 static uint8_t lcd_dirty = 1;   // 1 = lan ve tiep theo phai ve lai toan bo
 
-// Xoa 2 dong LCD
 static void lcd_clear_screen(void) {
     lcd_goto(0, 0); lcd_str("                ");
     lcd_goto(1, 0); lcd_str("                ");
 }
 
-// Man hinh chinh thoi gian, cung kieu voi display_countdown_lcd():
-//   MODE 2:RED
-//   TIME:     05 s
-// LCD ghi cham -> chi ve lai khi mode hoac gia tri doi.
 static void display_tuning_lcd(int mode_number, int value) {
     static int last_mode = -1, last_value = -1;
 
@@ -47,7 +38,7 @@ static void display_tuning_lcd(int mode_number, int value) {
     }
 
     char line[17];
-    snprintf(line, sizeof(line), "MODE %d:%s   ", mode_number, name);   // du 16 ky tu
+    snprintf(line, sizeof(line), "MODE %d:%s   ", mode_number, name);
     lcd_goto(0, 0);
     lcd_str(line);
 
@@ -66,14 +57,21 @@ static void enter_mode(Mode_t m) {
         case MODE_GREEN: temp_time = green_duration;  break;
         default: break;
     }
-    // tat het den, reset timer nhay (timer 1) va timer tu dong tang/giam (timer 2)
-    clearAllLEDs();
-    timer_flag[1] = 1;
-    timer_flag[2] = 1;
 
-    // doi man hinh LCD: xoa het roi ve lai
+    clearAllLEDs();
+    timer_flag[1] = 1;      // nhay ngay
+    timer_flag[2] = 1;      // cho phep tang/giam khi giu nut ngay
+
     lcd_clear_screen();
     lcd_dirty = 1;
+
+    // xoa co nut con sot, tranh "nhan nham" o mode moi
+    is_button_pressed(BTN_SELECT_IDX);
+    is_button_pressed(BTN_INC_IDX);
+    is_button_pressed(BTN_DEC_IDX);
+
+    // phai goi SAU lcd_clear_screen, neu khong man hinh manual bi xoa mat
+    if (m == MODE_MANUAL) fsm_manual_enter();
 }
 
 static void increase_temp(void) {
@@ -87,44 +85,30 @@ static void decrease_temp(void) {
 }
 
 static void handle_modify(int *target) {
-    // INC: nhan 1 lan tang 1
-    if (is_button_pressed(BTN_INC_IDX)) {
-        increase_temp();
-    }
-    // DEC: nhan 1 lan giam 1
-    if (is_button_pressed(BTN_DEC_IDX)) {
-        decrease_temp();
-    }
+    if (is_button_pressed(BTN_INC_IDX)) increase_temp();
+    if (is_button_pressed(BTN_DEC_IDX)) decrease_temp();
 
-    // Giu INC > 1s: tang lien tuc moi 200ms
+    // Giu INC/DEC > 1s: lap moi 200ms
     if (is_button_press_1s(BTN_INC_IDX)) {
         if (timer_flag[2] == 1) {
-            setTimer(2, 20);   // 20 x 10ms = 200ms
+            setTimer(2, 200);
             increase_temp();
         }
-    }
-    // Giu DEC > 1s: giam lien tuc moi 200ms
-    else if (is_button_press_1s(BTN_DEC_IDX)) {
+    } else if (is_button_press_1s(BTN_DEC_IDX)) {
         if (timer_flag[2] == 1) {
-            setTimer(2, 20);
+            setTimer(2, 200);
             decrease_temp();
         }
     }
 
-    // SELECT: luu gia tri
-    if (is_button_pressed(BTN_SELECT_IDX)) {
-        *target = temp_time;
-    }
+    *target = temp_time;                 // tu luu luon
+    is_button_pressed(BTN_SELECT_IDX);   // SELECT khong dung o mode chinh
 }
 
 void fsm_for_input_processing(void) {
     switch (mode) {
         case MODE_NORMAL:
-            // Nhan MODE: sang Mode 2 (chinh den Do)
-            if (is_button_pressed(BTN_MODE_IDX)) {
-                enter_mode(MODE_RED);
-            }
-            // Bo qua SELECT/INC/DEC o Mode 1 (xoa co de khong bi "nhan nham" khi vao mode chinh)
+            if (is_button_pressed(BTN_MODE_IDX)) enter_mode(MODE_RED);
             is_button_pressed(BTN_SELECT_IDX);
             is_button_pressed(BTN_INC_IDX);
             is_button_pressed(BTN_DEC_IDX);
@@ -132,49 +116,29 @@ void fsm_for_input_processing(void) {
 
         case MODE_RED:
             handle_modify(&red_duration);
-
-            if (timer_flag[1] == 1) {
-                setTimer(1, 25);          // 25 x 10ms = 250ms -> nhay 2Hz
-                blinkyRed();
-            }
-
+            if (timer_flag[1] == 1) { setTimer(1, 250); blinkyRed(); }
             display_tuning_lcd(2, temp_time);
-
-            if (is_button_pressed(BTN_MODE_IDX)) {
-                enter_mode(MODE_AMBER);
-            }
+            if (is_button_pressed(BTN_MODE_IDX)) enter_mode(MODE_AMBER);
             break;
 
         case MODE_AMBER:
             handle_modify(&yellow_duration);
-
-            if (timer_flag[1] == 1) {
-                setTimer(1, 25);
-                blinkyAmber();
-            }
-
+            if (timer_flag[1] == 1) { setTimer(1, 250); blinkyAmber(); }
             display_tuning_lcd(3, temp_time);
-
-            if (is_button_pressed(BTN_MODE_IDX)) {
-                enter_mode(MODE_GREEN);
-            }
+            if (is_button_pressed(BTN_MODE_IDX)) enter_mode(MODE_GREEN);
             break;
 
         case MODE_GREEN:
             handle_modify(&green_duration);
-
-            if (timer_flag[1] == 1) {
-                setTimer(1, 25);
-                blinkyGreen();
-            }
-
+            if (timer_flag[1] == 1) { setTimer(1, 250); blinkyGreen(); }
             display_tuning_lcd(4, temp_time);
+            if (is_button_pressed(BTN_MODE_IDX)) enter_mode(MODE_MANUAL);   // <-- sang MANUAL
+            break;
 
-            if (is_button_pressed(BTN_MODE_IDX)) {
-                enter_mode(MODE_NORMAL);   // enter_mode da xoa LCD va tat den
-
-                // Dua he thong tu dong ve luc ban dau
-                status = INIT;
+        case MODE_MANUAL:
+            if (fsm_manual_run()) {          // tra ve 1 khi nguoi dung nhan MODE
+                enter_mode(MODE_NORMAL);
+                status = INIT;               // auto chay lai tu dau
                 clearAllLEDs();
             }
             break;

@@ -14,7 +14,8 @@ typedef enum {
     MODE_NORMAL = 1,
     MODE_RED,
     MODE_AMBER,
-    MODE_GREEN
+    MODE_GREEN,
+	MODE_MANUAL
 } Mode_t;
 
 // Bien toan cuc chia se voi cac file khac
