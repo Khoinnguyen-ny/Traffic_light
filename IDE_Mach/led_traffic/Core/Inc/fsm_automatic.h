@@ -10,5 +10,6 @@
 
 #include "main.h"
 
+void fsm_automatic_run(void);
 
 #endif /* INC_FSM_AUTOMATIC_H_ */

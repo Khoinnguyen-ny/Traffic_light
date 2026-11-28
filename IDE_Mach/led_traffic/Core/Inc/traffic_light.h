@@ -9,6 +9,23 @@
 
 #include "main.h"
 
+void clearAllLEDs(void);
+
+void setRed1_Green2(void);
+void setRed1_Amber2(void);
+void setGreen1_Red2(void);
+void setAmber1_Red2(void);
+
+void blinkyRed(void);
+void blinkyAmber(void);
+void blinkyGreen(void);
+
+void display_LED_lane1(int color);
+void display_LED_lane2(int color);
+
+void display_countdown_lcd(void);
+void Task_System_Uptime(void);
+void Task_LCD_Display(void);
 
 
 #endif /* INC_TRAFFIC_LIGHT_H_ */
